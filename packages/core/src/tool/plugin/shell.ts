@@ -6,13 +6,14 @@ import type { SessionHooks } from "@opencode/plugin/effect/session"
 import type { ShellCreateBefore } from "@opencode/plugin/effect/shell"
 import type { Shell as ShellSchema } from "@opencode/schema/shell"
 import type { Tool } from "@opencode/schema/tool"
-import { Deferred, Effect, Schema } from "effect"
+import { Deferred, Effect, Option, Schema } from "effect"
 import { Environment } from "../../environment/index.js"
 import { Job } from "../../job.js"
 import { FileAccess } from "../../file-access.js"
 import { Permission } from "../../permission.js"
 import { NonNegativeInt } from "../../schema.js"
 import { Session } from "../../session.js"
+import { SessionMessage } from "../../session/message.js"
 import { SessionSchema } from "../../session/schema.js"
 import { Shell } from "../../shell.js"
 import { ShellParse } from "../../shell/parse.js"
@@ -103,6 +104,122 @@ const backgroundResult = (shellID: string, file: string) => ({
   status: "running" as const,
 })
 
+// Tells the session how a background command ended, once its job settles.
+const notify = Effect.fnUntraced(function* (
+  sessions: Session.Interface,
+  jobs: Job.Interface,
+  input: {
+    readonly sessionID: SessionSchema.ID
+    readonly id: string
+    readonly shellID: string
+    readonly command: string
+    readonly settled: Deferred.Deferred<Output>
+    // Read at delivery; `false` admits the notice without waking the session.
+    readonly resume?: () => false | undefined
+  },
+) {
+  const info = (yield* jobs.wait({ id: input.id })).info
+  if (!info || info.status === "running") return
+  const output = info.status === "completed" ? yield* Deferred.await(input.settled) : undefined
+  const text = output ? (info.output ?? "") : info.status === "error" ? (info.error ?? "Command failed") : "Cancelled"
+  const resume = input.resume?.()
+  yield* sessions.synthetic({
+    ...(info.notificationID ? { id: info.notificationID } : {}),
+    sessionID: input.sessionID,
+    description: input.command,
+    ...ShellResult.notification({
+      jobID: input.id,
+      shellID: input.shellID,
+      command: input.command,
+      state: info.status,
+      text,
+      output,
+    }),
+    ...(resume === false ? { resume } : {}),
+  })
+  if (info.notificationID) yield* jobs.completeBackground(info.notificationID)
+})
+
+// The job that waits on a command for its call (or its session, once backgrounded).
+const startJob = Effect.fnUntraced(function* (
+  jobs: Job.Interface,
+  shell: Shell.Interface,
+  input: {
+    readonly sessionID: SessionSchema.ID
+    readonly info: ShellSchema.Info
+    readonly notificationID?: SessionMessage.ID
+    readonly timeout?: () => number
+  },
+) {
+  const info = input.info
+  const settled = yield* Deferred.make<Output>()
+  const job = yield* jobs.start({
+    // CodeMode children share a tool-call ID, but each shell must own its job.
+    id: info.id,
+    type: name,
+    title: info.command,
+    metadata: { sessionID: input.sessionID, shellID: info.id },
+    recovery: {
+      kind: "shell",
+      sessionID: input.sessionID,
+      shellID: info.id,
+      command: info.command,
+    },
+    ...(input.notificationID ? { notificationID: input.notificationID } : {}),
+    run: Effect.gen(function* () {
+      const result = yield* shell.result(info)
+      if (!result.capture) return yield* new Shell.NotFoundError({ id: info.id })
+      return { ...ShellResult.output(result), status: "completed" as const }
+    }).pipe(
+      Effect.tap((output) => Deferred.succeed(settled, output)),
+      Effect.map((output) => resultMessages(output, input.timeout?.()).join("\n\n")),
+    ),
+    // Only cancelling the job stops the command, keeping it and its output file. A server shutdown interrupts
+    // the job without stopping it, so the command keeps running for the next server.
+    cancel: shell.stop(info.id, "killed").pipe(Effect.ignore, Effect.asVoid),
+  })
+  return { job, settled }
+})
+
+/** The tool result of a call whose command moved to the background. */
+export const backgroundToolResult = (shellID: string, file: string) => toolResult(backgroundResult(shellID, file))
+
+/**
+ * Watches a command taken over from a previous server as a background job of its session, and notifies the
+ * session when it finishes, as for a command the model ran in the background. A finished command's notice is
+ * admitted before this returns.
+ */
+export const reattach = Effect.fnUntraced(function* (input: {
+  readonly shell: Shell.Interface
+  readonly jobs: Job.Interface
+  readonly sessions: Session.Interface
+  readonly watch: Shell.DaemonInterface["watch"]
+  readonly sessionID: SessionSchema.ID
+  readonly info: ShellSchema.Info
+  // The job's existing durable row, if the previous server had backgrounded it.
+  readonly notificationID?: SessionMessage.ID
+  readonly resume?: () => false | undefined
+}) {
+  const { job, settled } = yield* startJob(input.jobs, input.shell, input)
+  yield* input.jobs.background(job.id)
+  const notifying = notify(input.sessions, input.jobs, {
+    sessionID: input.sessionID,
+    id: job.id,
+    shellID: input.info.id,
+    command: input.info.command,
+    settled,
+    resume: input.resume,
+  })
+  const current = yield* input.shell.get(input.info.id).pipe(Effect.option)
+  if (Option.isSome(current) && current.value.status !== "running")
+    return yield* notifying.pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("failed to report a recovered shell command", { id: input.info.id, error }),
+      ),
+    )
+  yield* input.watch(notifying)
+})
+
 export const Plugin = {
   id: "opencode.tool.shell",
   effect: Effect.fn("ShellTool.Plugin")(function* (ctx: Context) {
@@ -146,41 +263,15 @@ export const Plugin = {
       return timeout
     })
 
-    const notifyWhenDone = Effect.fn("ShellTool.notifyWhenDone")(
-      function* (
-        sessionID: SessionSchema.ID,
-        id: string,
-        shellID: string,
-        command: string,
-        settled: Deferred.Deferred<Output>,
-      ) {
-        const info = (yield* jobs.wait({ id })).info
-        if (!info || info.status === "running") return
-        const output = info.status === "completed" ? yield* Deferred.await(settled) : undefined
-        const text = output
-          ? (info.output ?? "")
-          : info.status === "error"
-            ? (info.error ?? "Command failed")
-            : "Cancelled"
-        yield* sessions.synthetic({
-          ...(info.notificationID ? { id: info.notificationID } : {}),
-          sessionID,
-          description: command,
-          ...ShellResult.notification({
-            jobID: id,
-            shellID,
-            command,
-            state: info.status,
-            text,
-            output,
-          }),
-        })
-        if (info.notificationID) yield* jobs.completeBackground(info.notificationID)
-      },
-      // Not in this Location's scope: a daemon command outlives a Location that closes while the server runs, and
-      // its session must still hear how it ended.
-      (effect) => daemon.watch(effect),
-    )
+    // Not in this Location's scope: a daemon command outlives a Location that closes while the server runs, and
+    // its session must still hear how it ended.
+    const notifyWhenDone = (
+      sessionID: SessionSchema.ID,
+      id: string,
+      shellID: string,
+      command: string,
+      settled: Deferred.Deferred<Output>,
+    ) => daemon.watch(notify(sessions, jobs, { sessionID, id, shellID, command, settled }))
 
     // Stops the command of a call the user asked to stop, and fails the call with the output so far. The command
     // stays observable, output file included.
@@ -217,6 +308,12 @@ export const Plugin = {
                     timeout,
                     shell: yield* compatibleShell,
                     metadata: { sessionID: context.sessionID },
+                    waited: input.background !== true,
+                    toolCall: {
+                      sessionID: context.sessionID,
+                      assistantMessageID: context.messageID,
+                      callID: context.id,
+                    },
                   },
                   (invocation) =>
                     Effect.gen(function* () {
@@ -229,30 +326,10 @@ export const Plugin = {
                 )
                 yield* context.progress({ shellID: info.id })
 
-                const settled = yield* Deferred.make<Output>()
-                const run = Effect.gen(function* () {
-                  const result = yield* shell.result(info)
-                  if (!result.capture) return yield* new Shell.NotFoundError({ id: info.id })
-                  return { ...ShellResult.output(result), status: "completed" as const }
-                }).pipe(
-                  Effect.tap((output) => Deferred.succeed(settled, output)),
-                  Effect.map((output) => resultMessages(output, finalTimeout).join("\n\n")),
-                  // Cancelling the job stops the command but keeps it, output file included.
-                  Effect.onInterrupt(() => shell.stop(info.id, "killed").pipe(Effect.ignore)),
-                )
-                const job = yield* jobs.start({
-                  // CodeMode children share a tool-call ID, but each shell must own its job.
-                  id: info.id,
-                  type: name,
-                  title: info.command,
-                  metadata: { sessionID: context.sessionID, shellID: info.id },
-                  recovery: {
-                    kind: "shell",
-                    sessionID: context.sessionID,
-                    shellID: info.id,
-                    command: info.command,
-                  },
-                  run,
+                const { job, settled } = yield* startJob(jobs, shell, {
+                  sessionID: context.sessionID,
+                  info,
+                  timeout: () => finalTimeout,
                 })
 
                 if (input.background === true) {
@@ -261,7 +338,8 @@ export const Plugin = {
                   return backgroundResult(info.id, info.file)
                 }
 
-                // A user's stop arrives through `cancel`; an interrupt (a server shutdown) cancels the job as before.
+                // A user's stop arrives through `cancel`. An interrupt (a server shutdown) leaves the command and its
+                // job running: the next server takes the call over and moves the command to the background.
                 const outcome = yield* restore(
                   Effect.raceFirst(
                     jobs
@@ -269,7 +347,7 @@ export const Plugin = {
                       .pipe(Effect.map((result) => ({ type: "settled" as const, result }))),
                     (context.cancel ?? Effect.never).pipe(Effect.as({ type: "cancelled" as const })),
                   ),
-                ).pipe(Effect.onInterrupt(() => jobs.cancel(job.id).pipe(Effect.ignore)))
+                )
                 if (outcome.type === "cancelled") return yield* cancelled(info, job.id)
                 const result = outcome.result
                 if (result?.type === "backgrounded") {

@@ -349,22 +349,34 @@ it.live("lets a tool the user stopped fail with its own error and interrupts the
   }),
 )
 
-for (const how of [
-  { name: "a server shutdown", reason: "shutdown" as const, locationClosed: false },
-  { name: "a closed Location", reason: "user" as const, locationClosed: true },
-])
-  it.live(`interrupts every tool on ${how.name}`, () =>
-    Effect.gen(function* () {
-      const { exit, data, requests } = yield* stopTwoTools(how)
-      expect(Exit.hasInterrupts(exit)).toBe(true)
-      expect(requests).toBe(1)
-      const generic = { status: "error", error: { type: "aborted", message: "Tool execution interrupted" } }
-      expect(data).toMatchObject({
-        error: { type: "aborted", message: "Step interrupted" },
-        content: [
-          { type: "tool", id: "call-cooperative", state: generic },
-          { type: "tool", id: "call-stuck", state: generic },
-        ],
-      })
-    }),
-  )
+it.live("interrupts every tool on a closed Location", () =>
+  Effect.gen(function* () {
+    const { exit, data, requests } = yield* stopTwoTools({ reason: "user", locationClosed: true })
+    expect(Exit.hasInterrupts(exit)).toBe(true)
+    expect(requests).toBe(1)
+    const generic = { status: "error", error: { type: "aborted", message: "Tool execution interrupted" } }
+    expect(data).toMatchObject({
+      error: { type: "aborted", message: "Step interrupted" },
+      content: [
+        { type: "tool", id: "call-cooperative", state: generic },
+        { type: "tool", id: "call-stuck", state: generic },
+      ],
+    })
+  }),
+)
+
+it.live("leaves an interrupted step as a crash would when the server shuts down", () =>
+  Effect.gen(function* () {
+    const { exit, data, requests } = yield* stopTwoTools({ reason: "shutdown", locationClosed: false })
+    expect(Exit.hasInterrupts(exit)).toBe(true)
+    expect(requests).toBe(1)
+    // No step end and no settled call: the next server finds the calls unsettled.
+    expect(data).not.toHaveProperty("error")
+    expect(data).toMatchObject({
+      content: [
+        { type: "tool", id: "call-cooperative", state: { status: "running" } },
+        { type: "tool", id: "call-stuck", state: { status: "running" } },
+      ],
+    })
+  }),
+)

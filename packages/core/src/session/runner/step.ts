@@ -178,6 +178,14 @@ export const make = Effect.gen(function* () {
         const joined = yield* restore(Fiber.awaitAll(toolRuns.map((run) => run.fiber))).pipe(Effect.exit)
         if (!streamInterrupted && Exit.isFailure(joined)) yield* stopTools
         const tools = classifyToolExits(joined, toolRuns)
+        // A server shutting down leaves the step as a crash would: unsettled calls and no step end. The next server
+        // settles them when the Session resumes, and takes over the shell commands still running for them.
+        if (
+          (streamInterrupted || tools.interrupted) &&
+          tools.declines.length === 0 &&
+          input.interruption?.() === "shutdown"
+        )
+          return yield* Effect.interrupt
 
         if (
           !publisher.record().outputStarted &&
