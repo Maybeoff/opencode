@@ -315,6 +315,16 @@ import type {
   WebsearchQueryOutput,
   ExperimentalUsageLimitsInput,
   ExperimentalUsageLimitsOutput,
+  ExperimentalTelegramListInput,
+  ExperimentalTelegramListOutput,
+  ExperimentalTelegramCreateInput,
+  ExperimentalTelegramCreateOutput,
+  ExperimentalTelegramEnableInput,
+  ExperimentalTelegramEnableOutput,
+  ExperimentalTelegramModelInput,
+  ExperimentalTelegramModelOutput,
+  ExperimentalTelegramRemoveInput,
+  ExperimentalTelegramRemoveOutput,
   ConfigGetInput,
   ConfigGetOutput,
   ConfigShellsOutput,
@@ -1731,6 +1741,71 @@ export function make(options: ClientOptions) {
             requestOptions,
           ),
       },
+      telegram: {
+        list: (input?: ExperimentalTelegramListInput, requestOptions?: RequestOptions) =>
+          request<ExperimentalTelegramListOutput>(
+            {
+              method: "GET",
+              path: `/api/experimental/telegram/bots`,
+              query: { location: input?.["location"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        create: (input: ExperimentalTelegramCreateInput, requestOptions?: RequestOptions) =>
+          request<ExperimentalTelegramCreateOutput>(
+            {
+              method: "POST",
+              path: `/api/experimental/telegram/bots`,
+              query: { location: input["location"] },
+              body: { agent: input["agent"], token: input["token"], model: input["model"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        enable: (input: ExperimentalTelegramEnableInput, requestOptions?: RequestOptions) =>
+          request<ExperimentalTelegramEnableOutput>(
+            {
+              method: "POST",
+              path: `/api/experimental/telegram/bots/${encodeURIComponent(input.botID)}/enable`,
+              query: { location: input["location"] },
+              body: { enabled: input["enabled"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        model: (input: ExperimentalTelegramModelInput, requestOptions?: RequestOptions) =>
+          request<ExperimentalTelegramModelOutput>(
+            {
+              method: "POST",
+              path: `/api/experimental/telegram/bots/${encodeURIComponent(input.botID)}/model`,
+              query: { location: input["location"] },
+              body: { model: input["model"] },
+              successStatus: 200,
+              declaredStatuses: [400, 401, 404],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        remove: (input: ExperimentalTelegramRemoveInput, requestOptions?: RequestOptions) =>
+          request<ExperimentalTelegramRemoveOutput>(
+            {
+              method: "DELETE",
+              path: `/api/experimental/telegram/bots/${encodeURIComponent(input.botID)}`,
+              query: { location: input["location"] },
+              successStatus: 204,
+              declaredStatuses: [400, 401, 404],
+              empty: true,
+            },
+            requestOptions,
+          ),
+      },
       config: {
         update: (input: ExperimentalConfigUpdateInput, requestOptions?: RequestOptions) =>
           request<ExperimentalConfigUpdateOutput>(
@@ -2779,6 +2854,19 @@ export function make(options: ClientOptions) {
     usage: {
       /** @deprecated Use `client.experimental.usage.limits`. Removed in the next minor. */
       limits: client.experimental.usage.limits,
+    },
+    /** @deprecated Use `client.experimental.telegram`. Removed in the next minor. */
+    telegram: {
+      /** @deprecated Use `client.experimental.telegram.list`. Removed in the next minor. */
+      list: client.experimental.telegram.list,
+      /** @deprecated Use `client.experimental.telegram.create`. Removed in the next minor. */
+      create: client.experimental.telegram.create,
+      /** @deprecated Use `client.experimental.telegram.enable`. Removed in the next minor. */
+      enable: client.experimental.telegram.enable,
+      /** @deprecated Use `client.experimental.telegram.model`. Removed in the next minor. */
+      model: client.experimental.telegram.model,
+      /** @deprecated Use `client.experimental.telegram.remove`. Removed in the next minor. */
+      remove: client.experimental.telegram.remove,
     },
     config: {
       ...client.config,

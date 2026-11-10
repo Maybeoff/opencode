@@ -45,6 +45,7 @@ import type { Worktree } from "@opencode/schema/worktree"
 import type { Vcs } from "@opencode/schema/vcs"
 import type { WebSearch } from "@opencode/schema/websearch"
 import type { UsageLimits } from "@opencode/schema/usage-limits"
+import type { Telegram } from "@opencode/schema/telegram"
 import type { Config } from "@opencode/schema/config"
 
 export type ServerInfoOutput = {
@@ -2775,6 +2776,65 @@ export interface ExperimentalUsageApi<E = never> {
   readonly limits: ExperimentalUsageLimitsOperation<E>
 }
 
+export type ExperimentalTelegramListInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+}
+export type ExperimentalTelegramListOutput = {
+  readonly location: Location.PublicRef
+  readonly data: ReadonlyArray<Telegram.Bot>
+}
+export type ExperimentalTelegramListOperation<E = never> = (
+  input?: ExperimentalTelegramListInput,
+) => Effect.Effect<ExperimentalTelegramListOutput, E>
+
+export type ExperimentalTelegramCreateInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly agent: Agent.ID
+  readonly token: string
+  readonly model?: Model.Ref | undefined
+}
+export type ExperimentalTelegramCreateOutput = { readonly location: Location.PublicRef; readonly data: Telegram.Bot }
+export type ExperimentalTelegramCreateOperation<E = never> = (
+  input: ExperimentalTelegramCreateInput,
+) => Effect.Effect<ExperimentalTelegramCreateOutput, E>
+
+export type ExperimentalTelegramEnableInput = {
+  readonly botID: Telegram.BotID
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly enabled: boolean
+}
+export type ExperimentalTelegramEnableOutput = { readonly location: Location.PublicRef; readonly data: Telegram.Bot }
+export type ExperimentalTelegramEnableOperation<E = never> = (
+  input: ExperimentalTelegramEnableInput,
+) => Effect.Effect<ExperimentalTelegramEnableOutput, E>
+
+export type ExperimentalTelegramModelInput = {
+  readonly botID: Telegram.BotID
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly model: Model.Ref
+}
+export type ExperimentalTelegramModelOutput = { readonly location: Location.PublicRef; readonly data: Telegram.Bot }
+export type ExperimentalTelegramModelOperation<E = never> = (
+  input: ExperimentalTelegramModelInput,
+) => Effect.Effect<ExperimentalTelegramModelOutput, E>
+
+export type ExperimentalTelegramRemoveInput = {
+  readonly botID: Telegram.BotID
+  readonly location?: { readonly directory?: string | undefined } | undefined
+}
+export type ExperimentalTelegramRemoveOutput = void
+export type ExperimentalTelegramRemoveOperation<E = never> = (
+  input: ExperimentalTelegramRemoveInput,
+) => Effect.Effect<ExperimentalTelegramRemoveOutput, E>
+
+export interface ExperimentalTelegramApi<E = never> {
+  readonly list: ExperimentalTelegramListOperation<E>
+  readonly create: ExperimentalTelegramCreateOperation<E>
+  readonly enable: ExperimentalTelegramEnableOperation<E>
+  readonly model: ExperimentalTelegramModelOperation<E>
+  readonly remove: ExperimentalTelegramRemoveOperation<E>
+}
+
 export type ConfigGetInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
 export type ConfigGetOutput = ReadonlyArray<Config.Entry>
 export type ConfigGetOperation<E = never> = (input?: ConfigGetInput) => Effect.Effect<ConfigGetOutput, E>
@@ -3014,6 +3074,51 @@ export type UsageLimitsOutput = ExperimentalUsageLimitsOutput
 /** @deprecated Use `ExperimentalUsageLimitsOperation`. Removed in the next minor. */
 export type UsageLimitsOperation<E = never> = ExperimentalUsageLimitsOperation<E>
 
+/** @deprecated Use `ExperimentalTelegramListInput`. Removed in the next minor. */
+export type TelegramListInput = ExperimentalTelegramListInput
+
+/** @deprecated Use `ExperimentalTelegramListOutput`. Removed in the next minor. */
+export type TelegramListOutput = ExperimentalTelegramListOutput
+
+/** @deprecated Use `ExperimentalTelegramListOperation`. Removed in the next minor. */
+export type TelegramListOperation<E = never> = ExperimentalTelegramListOperation<E>
+
+/** @deprecated Use `ExperimentalTelegramCreateInput`. Removed in the next minor. */
+export type TelegramCreateInput = ExperimentalTelegramCreateInput
+
+/** @deprecated Use `ExperimentalTelegramCreateOutput`. Removed in the next minor. */
+export type TelegramCreateOutput = ExperimentalTelegramCreateOutput
+
+/** @deprecated Use `ExperimentalTelegramCreateOperation`. Removed in the next minor. */
+export type TelegramCreateOperation<E = never> = ExperimentalTelegramCreateOperation<E>
+
+/** @deprecated Use `ExperimentalTelegramEnableInput`. Removed in the next minor. */
+export type TelegramEnableInput = ExperimentalTelegramEnableInput
+
+/** @deprecated Use `ExperimentalTelegramEnableOutput`. Removed in the next minor. */
+export type TelegramEnableOutput = ExperimentalTelegramEnableOutput
+
+/** @deprecated Use `ExperimentalTelegramEnableOperation`. Removed in the next minor. */
+export type TelegramEnableOperation<E = never> = ExperimentalTelegramEnableOperation<E>
+
+/** @deprecated Use `ExperimentalTelegramModelInput`. Removed in the next minor. */
+export type TelegramModelInput = ExperimentalTelegramModelInput
+
+/** @deprecated Use `ExperimentalTelegramModelOutput`. Removed in the next minor. */
+export type TelegramModelOutput = ExperimentalTelegramModelOutput
+
+/** @deprecated Use `ExperimentalTelegramModelOperation`. Removed in the next minor. */
+export type TelegramModelOperation<E = never> = ExperimentalTelegramModelOperation<E>
+
+/** @deprecated Use `ExperimentalTelegramRemoveInput`. Removed in the next minor. */
+export type TelegramRemoveInput = ExperimentalTelegramRemoveInput
+
+/** @deprecated Use `ExperimentalTelegramRemoveOutput`. Removed in the next minor. */
+export type TelegramRemoveOutput = ExperimentalTelegramRemoveOutput
+
+/** @deprecated Use `ExperimentalTelegramRemoveOperation`. Removed in the next minor. */
+export type TelegramRemoveOperation<E = never> = ExperimentalTelegramRemoveOperation<E>
+
 /** @deprecated Use `ExperimentalConfigUpdateInput`. Removed in the next minor. */
 export type ConfigUpdateInput = ExperimentalConfigUpdateInput
 
@@ -3035,6 +3140,9 @@ export type MigrationApi<E = never> = ExperimentalMigrationApi<E>
 /** @deprecated Use `ExperimentalUsageApi`. Removed in the next minor. */
 export type UsageApi<E = never> = ExperimentalUsageApi<E>
 
+/** @deprecated Use `ExperimentalTelegramApi`. Removed in the next minor. */
+export type TelegramApi<E = never> = ExperimentalTelegramApi<E>
+
 export interface AppApi<E = never> {
   readonly server: ServerApi<E>
   readonly location: LocationApi<E>
@@ -3050,6 +3158,7 @@ export interface AppApi<E = never> {
     readonly file: ExperimentalFileApi<E>
     readonly migration: ExperimentalMigrationApi<E>
     readonly usage: ExperimentalUsageApi<E>
+    readonly telegram: ExperimentalTelegramApi<E>
     readonly config: ExperimentalConfigApi<E>
   }
   readonly message: MessageApi<E>
@@ -3109,5 +3218,23 @@ export interface AppApi<E = never> {
   readonly usage: {
     /** @deprecated Use `client.experimental.usage.limits`. Removed in the next minor. */
     readonly limits: ExperimentalUsageLimitsOperation<E>
+  }
+
+  /** @deprecated Use `client.experimental.telegram`. Removed in the next minor. */
+  readonly telegram: {
+    /** @deprecated Use `client.experimental.telegram.list`. Removed in the next minor. */
+    readonly list: ExperimentalTelegramListOperation<E>
+
+    /** @deprecated Use `client.experimental.telegram.create`. Removed in the next minor. */
+    readonly create: ExperimentalTelegramCreateOperation<E>
+
+    /** @deprecated Use `client.experimental.telegram.enable`. Removed in the next minor. */
+    readonly enable: ExperimentalTelegramEnableOperation<E>
+
+    /** @deprecated Use `client.experimental.telegram.model`. Removed in the next minor. */
+    readonly model: ExperimentalTelegramModelOperation<E>
+
+    /** @deprecated Use `client.experimental.telegram.remove`. Removed in the next minor. */
+    readonly remove: ExperimentalTelegramRemoveOperation<E>
   }
 }

@@ -313,6 +313,16 @@ import type {
   WebsearchQueryOutput,
   ExperimentalUsageLimitsInput,
   ExperimentalUsageLimitsOutput,
+  ExperimentalTelegramListInput,
+  ExperimentalTelegramListOutput,
+  ExperimentalTelegramCreateInput,
+  ExperimentalTelegramCreateOutput,
+  ExperimentalTelegramEnableInput,
+  ExperimentalTelegramEnableOutput,
+  ExperimentalTelegramModelInput,
+  ExperimentalTelegramModelOutput,
+  ExperimentalTelegramRemoveInput,
+  ExperimentalTelegramRemoveOutput,
   ConfigGetInput,
   ConfigGetOutput,
   ConfigShellsOutput,
@@ -1939,6 +1949,57 @@ const adaptGroupExperimentalUsage = (raw: RawClient["server.usage"]) => ({
   limits: EndpointExperimentalUsageLimits(raw),
 })
 
+const EndpointExperimentalTelegramList =
+  (raw: RawClient["server.telegram"]) => (input?: ExperimentalTelegramListInput) =>
+    preserveEffect<ExperimentalTelegramListOutput>()(
+      raw["telegram.list"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointExperimentalTelegramCreate =
+  (raw: RawClient["server.telegram"]) => (input: ExperimentalTelegramCreateInput) =>
+    preserveEffect<ExperimentalTelegramCreateOutput>()(
+      raw["telegram.create"]({
+        query: { location: input["location"] },
+        payload: { agent: input["agent"], token: input["token"], model: input["model"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointExperimentalTelegramEnable =
+  (raw: RawClient["server.telegram"]) => (input: ExperimentalTelegramEnableInput) =>
+    preserveEffect<ExperimentalTelegramEnableOutput>()(
+      raw["telegram.enable"]({
+        params: { botID: input["botID"] },
+        query: { location: input["location"] },
+        payload: { enabled: input["enabled"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointExperimentalTelegramModel =
+  (raw: RawClient["server.telegram"]) => (input: ExperimentalTelegramModelInput) =>
+    preserveEffect<ExperimentalTelegramModelOutput>()(
+      raw["telegram.model"]({
+        params: { botID: input["botID"] },
+        query: { location: input["location"] },
+        payload: { model: input["model"] },
+      }).pipe(Effect.mapError(mapClientError)),
+    )
+
+const EndpointExperimentalTelegramRemove =
+  (raw: RawClient["server.telegram"]) => (input: ExperimentalTelegramRemoveInput) =>
+    preserveEffect<ExperimentalTelegramRemoveOutput>()(
+      raw["telegram.remove"]({ params: { botID: input["botID"] }, query: { location: input["location"] } }).pipe(
+        Effect.mapError(mapClientError),
+      ),
+    )
+
+const adaptGroupExperimentalTelegram = (raw: RawClient["server.telegram"]) => ({
+  list: EndpointExperimentalTelegramList(raw),
+  create: EndpointExperimentalTelegramCreate(raw),
+  enable: EndpointExperimentalTelegramEnable(raw),
+  model: EndpointExperimentalTelegramModel(raw),
+  remove: EndpointExperimentalTelegramRemove(raw),
+})
+
 const EndpointConfigGet = (raw: RawClient["server.config"]) => (input?: ConfigGetInput) =>
   preserveEffect<ConfigGetOutput>()(
     raw["config.get"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError)),
@@ -1978,6 +2039,7 @@ const adaptClient = (raw: RawClient) => {
       file: adaptGroupExperimentalFile(raw["server.fs"]),
       migration: adaptGroupExperimentalMigration(raw["server.migration"]),
       usage: adaptGroupExperimentalUsage(raw["server.usage"]),
+      telegram: adaptGroupExperimentalTelegram(raw["server.telegram"]),
       config: adaptGroupExperimentalConfig(raw["server.config"]),
     },
     message: adaptGroupMessage(raw["server.message"]),
@@ -2091,6 +2153,19 @@ const adaptClient = (raw: RawClient) => {
     usage: {
       /** @deprecated Use `client.experimental.usage.limits`. Removed in the next minor. */
       limits: client.experimental.usage.limits,
+    },
+    /** @deprecated Use `client.experimental.telegram`. Removed in the next minor. */
+    telegram: {
+      /** @deprecated Use `client.experimental.telegram.list`. Removed in the next minor. */
+      list: client.experimental.telegram.list,
+      /** @deprecated Use `client.experimental.telegram.create`. Removed in the next minor. */
+      create: client.experimental.telegram.create,
+      /** @deprecated Use `client.experimental.telegram.enable`. Removed in the next minor. */
+      enable: client.experimental.telegram.enable,
+      /** @deprecated Use `client.experimental.telegram.model`. Removed in the next minor. */
+      model: client.experimental.telegram.model,
+      /** @deprecated Use `client.experimental.telegram.remove`. Removed in the next minor. */
+      remove: client.experimental.telegram.remove,
     },
     config: {
       ...client.config,

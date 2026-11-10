@@ -368,6 +368,10 @@ export type WebSearchResult = { url: string; title?: string; content?: string; t
 
 export type UsageLimitsMeter = { percent: number; limited: boolean; resetsAt: number }
 
+export type TelegramBotID = string
+
+export type TelegramStatus = "running" | "stopped" | "error"
+
 export type McpProtocol = "legacy" | "auto" | "2026-07-28"
 
 export type ConfigCompactionPercent = string
@@ -410,6 +414,8 @@ export type ConfigModelVariantSettings = { compaction?: ProviderCompaction; enco
 export type PermissionRule = { action: string; resource: string; effect: PermissionEffect }
 
 export type PluginInfo = { id?: PluginID; source: PluginSource; features: PluginFeatures; state: PluginState }
+
+export type TelegramChat = { chatID: string; title?: string; sessionID: SessionID; lastActive: number }
 
 export type SessionForkBoundary =
   | { type: "before"; messageID: SessionMessageID }
@@ -1086,6 +1092,19 @@ export type ModelVariant = {
 }
 
 export type PermissionRuleset = Array<PermissionRule>
+
+export type TelegramBot = {
+  id: TelegramBotID
+  agent: AgentID
+  directory: AbsolutePath
+  model?: ModelRef
+  enabled: boolean
+  username?: string
+  status: TelegramStatus
+  error?: string
+  chats: Array<TelegramChat>
+  time: { created: number; updated: number }
+}
 
 export type UsageLimitsBudget = {
   id: string
@@ -3262,6 +3281,14 @@ export type VcsInitNotSupportedError = {
 export const isVcsInitNotSupportedError = (value: unknown): value is VcsInitNotSupportedError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "VcsInitNotSupportedError"
 
+export type TelegramBotNotFoundError = {
+  readonly _tag: "TelegramBotNotFoundError"
+  readonly botID: string
+  readonly message: string
+}
+export const isTelegramBotNotFoundError = (value: unknown): value is TelegramBotNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "TelegramBotNotFoundError"
+
 export type ServerInfoOutput = ServerInfo
 
 export type ServerPairOutput = PairingCode
@@ -4854,6 +4881,44 @@ export type ExperimentalUsageLimitsInput = {
 
 export type ExperimentalUsageLimitsOutput = { location: LocationPublicRef; data: UsageLimitsInfo | null }
 
+export type ExperimentalTelegramListInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+}
+
+export type ExperimentalTelegramListOutput = { location: LocationPublicRef; data: Array<TelegramBot> }
+
+export type ExperimentalTelegramCreateInput = {
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly agent: string
+  readonly token: string
+  readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | undefined
+}
+
+export type ExperimentalTelegramCreateOutput = { location: LocationPublicRef; data: TelegramBot }
+
+export type ExperimentalTelegramEnableInput = {
+  readonly botID: string
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly enabled: boolean
+}
+
+export type ExperimentalTelegramEnableOutput = { location: LocationPublicRef; data: TelegramBot }
+
+export type ExperimentalTelegramModelInput = {
+  readonly botID: string
+  readonly location?: { readonly directory?: string | undefined } | undefined
+  readonly model: { readonly id: string; readonly providerID: string; readonly variant?: string }
+}
+
+export type ExperimentalTelegramModelOutput = { location: LocationPublicRef; data: TelegramBot }
+
+export type ExperimentalTelegramRemoveInput = {
+  readonly botID: string
+  readonly location?: { readonly directory?: string | undefined } | undefined
+}
+
+export type ExperimentalTelegramRemoveOutput = void
+
 export type ConfigGetInput = { readonly location?: { readonly directory?: string | undefined } | undefined }
 
 export type ConfigGetOutput = Array<ConfigEntry>
@@ -5007,6 +5072,36 @@ export type UsageLimitsInput = ExperimentalUsageLimitsInput
 
 /** @deprecated Use `ExperimentalUsageLimitsOutput`. Removed in the next minor. */
 export type UsageLimitsOutput = ExperimentalUsageLimitsOutput
+
+/** @deprecated Use `ExperimentalTelegramListInput`. Removed in the next minor. */
+export type TelegramListInput = ExperimentalTelegramListInput
+
+/** @deprecated Use `ExperimentalTelegramListOutput`. Removed in the next minor. */
+export type TelegramListOutput = ExperimentalTelegramListOutput
+
+/** @deprecated Use `ExperimentalTelegramCreateInput`. Removed in the next minor. */
+export type TelegramCreateInput = ExperimentalTelegramCreateInput
+
+/** @deprecated Use `ExperimentalTelegramCreateOutput`. Removed in the next minor. */
+export type TelegramCreateOutput = ExperimentalTelegramCreateOutput
+
+/** @deprecated Use `ExperimentalTelegramEnableInput`. Removed in the next minor. */
+export type TelegramEnableInput = ExperimentalTelegramEnableInput
+
+/** @deprecated Use `ExperimentalTelegramEnableOutput`. Removed in the next minor. */
+export type TelegramEnableOutput = ExperimentalTelegramEnableOutput
+
+/** @deprecated Use `ExperimentalTelegramModelInput`. Removed in the next minor. */
+export type TelegramModelInput = ExperimentalTelegramModelInput
+
+/** @deprecated Use `ExperimentalTelegramModelOutput`. Removed in the next minor. */
+export type TelegramModelOutput = ExperimentalTelegramModelOutput
+
+/** @deprecated Use `ExperimentalTelegramRemoveInput`. Removed in the next minor. */
+export type TelegramRemoveInput = ExperimentalTelegramRemoveInput
+
+/** @deprecated Use `ExperimentalTelegramRemoveOutput`. Removed in the next minor. */
+export type TelegramRemoveOutput = ExperimentalTelegramRemoveOutput
 
 /** @deprecated Use `ExperimentalConfigUpdateInput`. Removed in the next minor. */
 export type ConfigUpdateInput = ExperimentalConfigUpdateInput

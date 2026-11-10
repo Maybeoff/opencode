@@ -351,3 +351,12 @@ export class ArtifactNotFoundError extends Schema.TaggedError<ArtifactNotFoundEr
   },
   { httpApiStatus: 404 },
 ) {}
+
+export class TelegramBotNotFoundError extends Schema.TaggedError<TelegramBotNotFoundError>()(
+  "TelegramBotNotFoundError",
+  {
+    botID: Schema.String,
+    message: Schema.String,
+  },
+  { httpApiStatus: 404 },
+) {}

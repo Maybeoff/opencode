@@ -31,6 +31,7 @@ import { LocationActivity } from "@opencode/core/location-activity"
 import { ModelsDev } from "@opencode/core/models-dev"
 import { SessionRestart } from "@opencode/core/session/execution/restart"
 import { Schedule } from "@opencode/core/schedule"
+import { Telegram } from "@opencode/core/telegram"
 import { PluginUpdate } from "@opencode/core/plugin/update"
 import { SdkPlugins } from "@opencode/core/plugin/sdk"
 import { WellKnown } from "@opencode/core/wellknown"
@@ -82,6 +83,7 @@ const applicationServiceNodes = [
   LocationActivity.node,
   SessionRestart.node,
   Schedule.node,
+  Telegram.node,
   Workspace.node,
   FileWatch.node,
 ] as const
