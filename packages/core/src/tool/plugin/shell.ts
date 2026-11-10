@@ -6,20 +6,19 @@ import type { SessionHooks } from "@opencode/plugin/effect/session"
 import type { ShellCreateBefore } from "@opencode/plugin/effect/shell"
 import type { Shell as ShellSchema } from "@opencode/schema/shell"
 import type { Tool } from "@opencode/schema/tool"
-import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect"
+import { Deferred, Effect, Schema, Scope } from "effect"
 import { Environment } from "../../environment/index.js"
 import { Job } from "../../job.js"
 import { FileAccess } from "../../file-access.js"
 import { Permission } from "../../permission.js"
 import { NonNegativeInt } from "../../schema.js"
 import { Session } from "../../session.js"
-import { SessionInterruption } from "../../session/interruption.js"
 import { SessionSchema } from "../../session/schema.js"
 import { Shell } from "../../shell.js"
 import { ShellParse } from "../../shell/parse.js"
 import { ShellSelect } from "../../shell/select.js"
 import { ShellResult } from "../../shell/result.js"
-import { ToolInterrupted } from "../interrupted.js"
+import { toolFailure } from "../runtime.js"
 
 export const name = "shell"
 export const DEFAULT_TIMEOUT_MS = 2 * 60 * 1_000
@@ -180,26 +179,18 @@ export const Plugin = {
       Effect.forkIn(scope, { startImmediately: true }),
     )
 
-    // Ends the job of an interrupted foreground call. When the user interrupted it, the call settles with the
-    // output so far, and the command stays observable; a teardown (shutdown, Location closing) leaves the call
-    // to be recorded as interrupted.
-    const interrupted = Effect.fnUntraced(function* (info: ShellSchema.Info, jobID: string) {
-      const reason = yield* SessionInterruption.Reason
-      if (reason() !== "user") {
-        yield* jobs.cancel(jobID)
-        return
-      }
+    // Stops the command of a call the user asked to stop, and fails the call with the output so far. The command
+    // stays observable, output file included.
+    const cancelled = Effect.fnUntraced(function* (info: ShellSchema.Info, jobID: string) {
       yield* shell.stop(info.id, "killed").pipe(Effect.ignore)
       // The stop escalates to SIGKILL on its own; the session does not wait for that to settle the call.
       const result = yield* shell.result(info, { wait: INTERRUPT_WAIT })
       // The stopped job settles from the same exit; this only releases it.
       yield* jobs.cancel(jobID)
-      yield* ToolInterrupted.report(
-        new ToolFailure({
-          message: ShellResult.interrupted(result),
-          metadata: { interrupted: true, truncated: result.capture?.truncated ?? false },
-        }),
-      )
+      return yield* new ToolFailure({
+        message: ShellResult.interrupted(result),
+        metadata: { interrupted: true, truncated: result.capture?.truncated ?? false, shellID: info.id },
+      })
     })
 
     yield* ctx.tool
@@ -267,14 +258,17 @@ export const Plugin = {
                   return backgroundResult(info.id, info.file)
                 }
 
-                const blocked = yield* restore(jobs.block({ id: job.id, sessionID: context.sessionID })).pipe(
-                  Effect.exit,
-                )
-                if (Exit.isFailure(blocked)) {
-                  if (Cause.hasInterrupts(blocked.cause)) yield* interrupted(info, job.id)
-                  return yield* Effect.failCause(blocked.cause)
-                }
-                const result = blocked.value
+                // A user's stop arrives through `cancel`; an interrupt (a server shutdown) cancels the job as before.
+                const outcome = yield* restore(
+                  Effect.raceFirst(
+                    jobs
+                      .block({ id: job.id, sessionID: context.sessionID })
+                      .pipe(Effect.map((result) => ({ type: "settled" as const, result }))),
+                    (context.cancel ?? Effect.never).pipe(Effect.as({ type: "cancelled" as const })),
+                  ),
+                ).pipe(Effect.onInterrupt(() => jobs.cancel(job.id).pipe(Effect.ignore)))
+                if (outcome.type === "cancelled") return yield* cancelled(info, job.id)
+                const result = outcome.result
                 if (result?.type === "backgrounded") {
                   yield* shell.timeout(info.id, 0)
                   finalTimeout = 0
@@ -294,9 +288,7 @@ export const Plugin = {
                 ...(input.background === true ? { "opencode.shell.background": true } : {}),
               }),
               Effect.map((output) => toolResult(output, finalTimeout)),
-              Effect.mapError(
-                (error) => new ToolFailure({ message: `Unable to execute command: ${input.command}`, error }),
-              ),
+              Effect.mapError(toolFailure(`Unable to execute command: ${input.command}`)),
             )
           },
         }),

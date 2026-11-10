@@ -19,7 +19,6 @@ import { SessionMessageTable, SessionTable } from "@opencode/core/session/sql"
 import { Snapshot } from "@opencode/core/snapshot"
 import { Tool } from "@opencode/core/tool"
 import { ToolOutput } from "@opencode/core/tool-output"
-import { ToolInterrupted } from "@opencode/core/tool/interrupted"
 import { Money } from "@opencode/schema/money"
 import { LayerNode } from "@opencode/util/effect/layer-node"
 import { asc, eq } from "drizzle-orm"
@@ -230,7 +229,9 @@ it.effect("records the cost the endpoint reports instead of the catalog price", 
   }),
 )
 
-it.live("records the failure an interrupted tool reports, and still ends interrupted", () =>
+// Interrupts an attempt running a tool that stops on `cancel` and one that never does, and returns how the step and
+// its calls were recorded.
+const stopTwoTools = (how: { reason: "user" | "shutdown"; locationClosed: boolean }) =>
   Effect.gen(function* () {
     const db = (yield* Database.Service).db
     const llm = yield* TestLLM.Test
@@ -247,6 +248,7 @@ it.live("records the failure an interrupted tool reports, and still ends interru
     yield* db
       .insert(ProjectTable)
       .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+      .onConflictDoNothing()
       .run()
     yield* db
       .insert(SessionTable)
@@ -263,61 +265,106 @@ it.live("records the failure an interrupted tool reports, and still ends interru
     yield* llm.push(
       TestLLM.complete(
         { reason: { normalized: "tool-calls" }, usage: { inputTokens: 1, outputTokens: 1 } },
-        LLMEvent.toolCall({ id: "call-interrupted", name: "test", input: {} }),
+        LLMEvent.toolCall({ id: "call-cooperative", name: "test", input: {} }),
+        LLMEvent.toolCall({ id: "call-stuck", name: "test", input: {} }),
       ),
     )
-    const started = yield* Deferred.make<void>()
+    const listening = yield* Deferred.make<void>()
+    const stuck = yield* Deferred.make<void>()
+    let interrupted = false
     const attempt = yield* steps
       .attempt({
-        isLocationClosed: () => false,
+        isLocationClosed: () => how.locationClosed,
+        interruption: () => how.reason,
         sessionID,
         assistantMessageID,
         agent: Agent.defaultID,
         model,
         prepared: {
           retry: () => Effect.void,
-          request: ai.request({ model: model.model, prompt: "Run one tool" }),
+          request: ai.request({ model: model.model, prompt: "Run two tools" }),
           options: {},
-          // Like the shell tool: finish the work uninterruptibly, then report the failure and end interrupted.
-          executeTool: () =>
-            Effect.uninterruptibleMask((restore) =>
-              Effect.gen(function* () {
-                yield* Deferred.succeed(started, undefined)
-                const exit = yield* restore(Effect.never).pipe(Effect.exit)
-                yield* ToolInterrupted.report(
-                  new Tool.Error({ message: "partial output", metadata: { interrupted: true } }),
+          executeTool: (input) =>
+            input.call.id === "call-cooperative"
+              ? // Like the shell tool: stops on `cancel` and fails with what it has.
+                Deferred.succeed(listening, undefined).pipe(
+                  Effect.andThen(input.cancel ?? Effect.never),
+                  Effect.andThen(
+                    Effect.fail(new Tool.Error({ message: "partial output", metadata: { interrupted: true } })),
+                  ),
                 )
-                return yield* exit
-              }),
-            ),
+              : Deferred.succeed(stuck, undefined).pipe(
+                  Effect.andThen(Effect.never),
+                  Effect.onInterrupt(() =>
+                    Effect.sync(() => {
+                      interrupted = true
+                    }),
+                  ),
+                ),
         },
         retry: () => Effect.succeed({ retry: false }),
         recoverContinuation: true,
         recoverOverflow: Effect.succeed(false),
       })
       .pipe(Effect.forkChild({ startImmediately: true }))
-    yield* Deferred.await(started)
+    yield* Deferred.await(listening)
+    yield* Deferred.await(stuck)
     yield* Fiber.interrupt(attempt)
     const exit = yield* Fiber.await(attempt)
-    expect(Exit.hasInterrupts(exit)).toBe(true)
-    expect(yield* llm.requests()).toHaveLength(1)
     const message = yield* db
       .select()
       .from(SessionMessageTable)
       .where(eq(SessionMessageTable.id, assistantMessageID))
       .get()
-    expect(message?.data).toMatchObject({
+    return { exit, data: message?.data, requests: (yield* llm.requests()).length, interrupted }
+  })
+
+it.live("lets a tool the user stopped fail with its own error and interrupts the others at once", () =>
+  Effect.gen(function* () {
+    const started = Date.now()
+    const { exit, data, requests, interrupted } = yield* stopTwoTools({ reason: "user", locationClosed: false })
+    expect(Exit.hasInterrupts(exit)).toBe(true)
+    expect(requests).toBe(1)
+    expect(interrupted).toBe(true)
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(data).toMatchObject({
       error: { type: "aborted", message: "Step interrupted" },
       content: [
         {
           type: "tool",
+          id: "call-cooperative",
           state: {
             status: "error",
             error: { type: "tool.execution", message: "partial output" },
             metadata: { interrupted: true },
           },
         },
+        {
+          type: "tool",
+          id: "call-stuck",
+          state: { status: "error", error: { type: "aborted", message: "Tool execution interrupted" } },
+        },
       ],
     })
   }),
 )
+
+for (const how of [
+  { name: "a server shutdown", reason: "shutdown" as const, locationClosed: false },
+  { name: "a closed Location", reason: "user" as const, locationClosed: true },
+])
+  it.live(`interrupts every tool on ${how.name}`, () =>
+    Effect.gen(function* () {
+      const { exit, data, requests } = yield* stopTwoTools(how)
+      expect(Exit.hasInterrupts(exit)).toBe(true)
+      expect(requests).toBe(1)
+      const generic = { status: "error", error: { type: "aborted", message: "Tool execution interrupted" } }
+      expect(data).toMatchObject({
+        error: { type: "aborted", message: "Step interrupted" },
+        content: [
+          { type: "tool", id: "call-cooperative", state: generic },
+          { type: "tool", id: "call-stuck", state: generic },
+        ],
+      })
+    }),
+  )
